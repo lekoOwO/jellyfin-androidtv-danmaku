@@ -416,6 +416,43 @@ class DanmakuController(
             .show()
     }
 
+    private fun showAddSourceDialog() {
+        val editText = EditText(context).apply {
+            hint = context.getString(R.string.danmaku_add_source_hint)
+            isSingleLine = true
+        }
+        AlertDialog.Builder(context)
+            .setTitle(R.string.danmaku_add_source_title)
+            .setView(editText)
+            .setPositiveButton(R.string.danmaku_add_source_action) { _, _ ->
+                val url = editText.text.toString().trim()
+                if (url.isNotEmpty()) addSource(url)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun addSource(url: String) {
+        loadJob?.cancel()
+        loadJob = scope.launch {
+            try {
+                val comments = client.getCommentsByUrl(preferences.apiBaseUrl, url, preferences.chConvert)
+                if (comments.isEmpty()) {
+                    context.toast(R.string.danmaku_add_source_empty)
+                    return@launch
+                }
+                rawComments = rawComments + comments
+                applyProcessedComments()
+                context.toast(context.getString(R.string.danmaku_add_source_loaded, comments.size))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to load additional danmaku source")
+                context.toast(R.string.danmaku_add_source_failed)
+            }
+        }
+    }
+
     private fun searchAndSelect(name: String) {
         scope.launch {
             try {
@@ -530,6 +567,10 @@ class DanmakuController(
             danmakuReloadButton.setOnClickListener {
                 dialog.dismiss()
                 reload()
+            }
+            danmakuAddSourceButton.setOnClickListener {
+                dialog.dismiss()
+                showAddSourceDialog()
             }
 
             danmakuOffsetValue.setText(initialOffset.toString())
