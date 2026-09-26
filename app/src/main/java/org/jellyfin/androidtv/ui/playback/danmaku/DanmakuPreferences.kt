@@ -38,6 +38,18 @@ class DanmakuPreferences(context: Context) {
         get() = prefs.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE)
         set(value) = prefs.edit { putInt(KEY_FONT_SIZE, value.coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)) }
 
+    var fontFamily: String
+        get() = prefs.getString(KEY_FONT_FAMILY, DEFAULT_FONT_FAMILY).orEmpty()
+        set(value) = prefs.edit { putString(KEY_FONT_FAMILY, value.trim().ifEmpty { DEFAULT_FONT_FAMILY }) }
+
+    var fontWeight: Int
+        get() = prefs.getInt(KEY_FONT_WEIGHT, DEFAULT_FONT_WEIGHT)
+        set(value) = prefs.edit { putInt(KEY_FONT_WEIGHT, value.coerceIn(MIN_FONT_WEIGHT, MAX_FONT_WEIGHT)) }
+
+    var fontItalic: Boolean
+        get() = prefs.getBoolean(KEY_FONT_ITALIC, false)
+        set(value) = prefs.edit { putBoolean(KEY_FONT_ITALIC, value) }
+
     var heightRatio: Float
         get() = prefs.getFloat(KEY_HEIGHT_RATIO, DEFAULT_HEIGHT_RATIO)
         set(value) = prefs.edit { putFloat(KEY_HEIGHT_RATIO, value.coerceIn(MIN_HEIGHT_RATIO, 1f)) }
@@ -139,6 +151,10 @@ class DanmakuPreferences(context: Context) {
         const val DEFAULT_FONT_SIZE = 18
         const val MIN_FONT_SIZE = 8
         const val MAX_FONT_SIZE = 40
+        const val DEFAULT_FONT_FAMILY = "sans-serif"
+        const val DEFAULT_FONT_WEIGHT = 400
+        const val MIN_FONT_WEIGHT = 100
+        const val MAX_FONT_WEIGHT = 900
         const val DEFAULT_HEIGHT_RATIO = 0.9f
         const val MIN_HEIGHT_RATIO = 0.1f
         const val MAX_DENSITY_LIMIT = 3
@@ -147,6 +163,9 @@ class DanmakuPreferences(context: Context) {
         private const val KEY_OPACITY = "danmaku_opacity"
         private const val KEY_SPEED = "danmaku_speed"
         private const val KEY_FONT_SIZE = "danmaku_font_size"
+        private const val KEY_FONT_FAMILY = "danmaku_font_family"
+        private const val KEY_FONT_WEIGHT = "danmaku_font_weight"
+        private const val KEY_FONT_ITALIC = "danmaku_font_italic"
         private const val KEY_HEIGHT_RATIO = "danmaku_height_ratio"
         private const val KEY_SOURCE_FILTER = "danmaku_source_filter"
         private const val KEY_MODE_FILTER = "danmaku_mode_filter"
