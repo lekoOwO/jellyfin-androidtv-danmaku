@@ -9,21 +9,18 @@ import android.os.Build
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
-import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.random.Random
 
-/**
- * 原生弹幕渲染视图。由播放器当前进度驱动，暂停、倍速、seek 天然同步。
- */
+/** Native overlay driven by the current media position, including pause, speed and seeking. */
 @Suppress("TooManyFunctions")
 class DanmakuView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
 
-    /** 播放位置提供者，返回当前播放进度（毫秒） */
+    /** Current playback position in milliseconds. */
     var positionProvider: (() -> Long)? = null
 
     var danmakuVisible: Boolean = true
@@ -79,25 +76,22 @@ class DanmakuView @JvmOverloads constructor(
     private var fontPx = 0f
     private var laneHeight = 0f
     private var speedPxPerSecond = 0f
-
     private var items: List<RenderItem> = emptyList()
     private val activeItems = ArrayList<RenderItem>()
     private var nextIndex = 0
     private var lastPositionMs = Long.MIN_VALUE
     private var forceRebuild = true
-
     private var laneCount = 1
     private var scrollLaneTimes = LongArray(0)
     private var scrollLaneWidths = FloatArray(0)
+    private var scrollLaneModes = emptyArray<DanmakuMode>()
     private var topLaneUntil = LongArray(0)
     private var bottomLaneUntil = LongArray(0)
 
     private val frameRunnable = object : Runnable {
         override fun run() {
             tick()
-            if (isAttachedToWindow) {
-                postOnAnimation(this)
-            }
+            if (isAttachedToWindow) postOnAnimation(this)
         }
     }
 
@@ -107,6 +101,7 @@ class DanmakuView @JvmOverloads constructor(
 
     fun setComments(comments: List<DanmakuComment>) {
         items = comments
+            .filter { it.timeSeconds.isFinite() }
             .map { comment ->
                 RenderItem(
                     timeMs = (comment.timeSeconds * MILLIS_PER_SECOND).toLong(),
@@ -154,13 +149,7 @@ class DanmakuView @JvmOverloads constructor(
         }
         fillPaint.typeface = resolvedTypeface
         strokePaint.typeface = resolvedTypeface
-
-        val alpha = (newConfig.opacity * MAX_ALPHA).toInt().coerceIn(0, MAX_ALPHA)
-        fillPaint.alpha = alpha
-        strokePaint.alpha = alpha
-        items.forEach { item ->
-            item.width = -1f
-        }
+        items.forEach { it.width = -1f }
         forceRebuild = true
         invalidate()
     }
@@ -169,6 +158,7 @@ class DanmakuView @JvmOverloads constructor(
         items = emptyList()
         activeItems.clear()
         nextIndex = 0
+        lastPositionMs = Long.MIN_VALUE
         forceRebuild = true
         invalidate()
     }
@@ -204,10 +194,10 @@ class DanmakuView @JvmOverloads constructor(
         val position = positionProvider?.invoke() ?: return
         val duration = durationMs()
         if (duration == 0L) return
-
         var changed = false
 
-        if (forceRebuild || position < lastPositionMs - BACKWARD_TOLERANCE_MS ||
+        if (forceRebuild || lastPositionMs == Long.MIN_VALUE ||
+            position < lastPositionMs - BACKWARD_TOLERANCE_MS ||
             position > lastPositionMs + FORWARD_JUMP_THRESHOLD_MS
         ) {
             rebuild(position, duration)
@@ -219,22 +209,16 @@ class DanmakuView @JvmOverloads constructor(
         }
 
         while (nextIndex < items.size && items[nextIndex].timeMs <= position) {
-            val item = items[nextIndex]
-            nextIndex++
+            val item = items[nextIndex++]
             if (position - item.timeMs > duration) continue
-            if (item.width < 0f) {
-                item.width = fillPaint.measureText(item.text)
-            }
+            if (item.width < 0f) item.width = fillPaint.measureText(item.text)
             item.lane = assignLane(item, duration)
             if (item.lane >= 0) {
                 activeItems.add(item)
                 changed = true
             }
         }
-
-        if (changed || position != lastPositionMs) {
-            invalidate()
-        }
+        if (changed || position != lastPositionMs) invalidate()
         lastPositionMs = position
     }
 
@@ -257,6 +241,7 @@ class DanmakuView @JvmOverloads constructor(
         laneCount = max(1, floor(usableHeight / laneHeight).toInt())
         scrollLaneTimes = LongArray(laneCount) { Long.MIN_VALUE }
         scrollLaneWidths = FloatArray(laneCount)
+        scrollLaneModes = Array(laneCount) { DanmakuMode.SCROLL }
         topLaneUntil = LongArray(laneCount) { Long.MIN_VALUE }
         bottomLaneUntil = LongArray(laneCount) { Long.MIN_VALUE }
     }
@@ -268,15 +253,13 @@ class DanmakuView @JvmOverloads constructor(
             DanmakuMode.SCROLL, DanmakuMode.SCROLL_LTR -> {
                 for (lane in 0 until laneCount) {
                     if (isScrollLaneFree(lane, item, duration)) {
-                        scrollLaneTimes[lane] = item.timeMs
-                        scrollLaneWidths[lane] = item.width
+                        reserveScrollLane(lane, item)
                         return lane
                     }
                 }
                 if (config.antiOverlap) return -1
                 val lane = Random.nextInt(laneCount)
-                scrollLaneTimes[lane] = item.timeMs
-                scrollLaneWidths[lane] = item.width
+                reserveScrollLane(lane, item)
                 return lane
             }
             DanmakuMode.TOP -> return assignFixedLane(topLaneUntil, item, duration)
@@ -284,14 +267,21 @@ class DanmakuView @JvmOverloads constructor(
         }
     }
 
+    private fun reserveScrollLane(lane: Int, item: RenderItem) {
+        scrollLaneTimes[lane] = item.timeMs
+        scrollLaneWidths[lane] = item.width
+        scrollLaneModes[lane] = item.mode
+    }
+
     private fun isScrollLaneFree(lane: Int, item: RenderItem, duration: Long): Boolean {
         val prevTime = scrollLaneTimes[lane]
         if (prevTime == Long.MIN_VALUE) return true
-        val prevWidth = scrollLaneWidths[lane]
-        val widthF = width.toFloat()
-        val requiredGap = duration * max(
-            prevWidth / (widthF + prevWidth),
-            item.width / (widthF + item.width),
+        val requiredGap = danmakuScrollGapMs(
+            previousWidth = scrollLaneWidths[lane],
+            nextWidth = item.width,
+            viewportWidth = width.toFloat(),
+            durationMs = duration,
+            oppositeDirection = scrollLaneModes[lane] != item.mode,
         )
         return item.timeMs - prevTime >= requiredGap
     }
@@ -316,24 +306,16 @@ class DanmakuView @JvmOverloads constructor(
         val duration = durationMs()
         if (duration == 0L) return
         val widthF = width.toFloat()
-
         val alpha = (config.opacity * MAX_ALPHA).toInt().coerceIn(0, MAX_ALPHA)
-        fillPaint.alpha = alpha
-        strokePaint.alpha = alpha
 
         for (item in activeItems) {
             val progress = (position - item.timeMs).toFloat() / duration
             if (progress < 0f || progress > 1f) continue
-
             val x: Float
             val baseline: Float
             when (item.mode) {
-                DanmakuMode.SCROLL -> {
-                    x = widthF - progress * (widthF + item.width)
-                    baseline = item.lane * laneHeight + fontPx
-                }
-                DanmakuMode.SCROLL_LTR -> {
-                    x = -item.width + progress * (widthF + item.width)
+                DanmakuMode.SCROLL, DanmakuMode.SCROLL_LTR -> {
+                    x = danmakuScrollX(item.mode == DanmakuMode.SCROLL_LTR, widthF, item.width, progress)
                     baseline = item.lane * laneHeight + fontPx
                 }
                 DanmakuMode.TOP -> {
@@ -342,14 +324,13 @@ class DanmakuView @JvmOverloads constructor(
                 }
                 DanmakuMode.BOTTOM -> {
                     x = (widthF - item.width) / 2f
-                    baseline = height - (item.lane + 1) * laneHeight + fontPx
+                    baseline = height * config.heightRatio - (item.lane + 1) * laneHeight + fontPx
                 }
             }
-
-            strokePaint.color = if (item.colorRgb == 0) Color.WHITE else Color.BLACK
+            val outline = if (item.colorRgb == 0) Color.WHITE else Color.BLACK
+            strokePaint.color = danmakuArgb(outline, alpha)
             canvas.drawText(item.text, x, baseline, strokePaint)
-
-            fillPaint.color = item.colorRgb or ALPHA_MASK
+            fillPaint.color = danmakuArgb(item.colorRgb, alpha)
             canvas.drawText(item.text, x, baseline, fillPaint)
         }
     }
@@ -359,7 +340,6 @@ class DanmakuView @JvmOverloads constructor(
         private const val LINE_HEIGHT_FACTOR = 1.35f
         private const val STROKE_WIDTH = 3f
         private const val MAX_ALPHA = 255
-        private const val ALPHA_MASK = 0xFF shl 24
         private const val MIN_DURATION_MS = 1000L
         private const val BACKWARD_TOLERANCE_MS = 250L
         private const val FORWARD_JUMP_THRESHOLD_MS = 2000L

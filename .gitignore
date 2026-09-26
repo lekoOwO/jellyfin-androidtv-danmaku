@@ -7,3 +7,15 @@ local.properties
 .kotlin/
 build/
 captures/
+
+# Signing credentials must never be committed.
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.jks.b64
+*.keystore.b64
+/signing/
+/danmaku-signing.properties
+/dist/
+/signed/
