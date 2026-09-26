@@ -41,7 +41,7 @@ class DandanplayClient(okHttpClient: OkHttpClient) {
      */
     suspend fun searchEpisodes(apiBaseUrl: String, animeName: String): List<AnimeResult> = withContext(Dispatchers.IO) {
         val encodedName = URLEncoder.encode(animeName, Charsets.UTF_8.name())
-        val url = "$apiBaseUrl/api/v2/search/episodes?anime=$encodedName"
+        val url = "${apiV2(apiBaseUrl)}/search/episodes?anime=$encodedName"
         val json = JSONObject(requestString(url))
         val animes = json.optJSONArray("animes") ?: return@withContext emptyList()
 
@@ -78,7 +78,7 @@ class DandanplayClient(okHttpClient: OkHttpClient) {
      */
     suspend fun getComments(apiBaseUrl: String, episodeId: Long, chConvert: Int): List<DanmakuComment> =
         withContext(Dispatchers.IO) {
-            val url = "$apiBaseUrl/api/v2/comment/$episodeId?withRelated=true&chConvert=$chConvert"
+            val url = "${apiV2(apiBaseUrl)}/comment/$episodeId?withRelated=true&chConvert=$chConvert"
             val json = JSONObject(requestString(url))
             val comments = json.optJSONArray("comments") ?: return@withContext emptyList()
 
@@ -93,6 +93,31 @@ class DandanplayClient(okHttpClient: OkHttpClient) {
                 }
             }
         }
+
+    /**
+     * 通过视频播放页 URL 临时获取额外弹幕源。
+     */
+    suspend fun getCommentsByUrl(
+        apiBaseUrl: String,
+        videoUrl: String,
+        chConvert: Int,
+    ): List<DanmakuComment> = withContext(Dispatchers.IO) {
+        val encodedUrl = URLEncoder.encode(videoUrl.trim(), Charsets.UTF_8.name())
+        val url = "${apiV2(apiBaseUrl)}/extcomment?chConvert=$chConvert&url=$encodedUrl"
+        val json = JSONObject(requestString(url))
+        val comments = json.optJSONArray("comments") ?: return@withContext emptyList()
+
+        buildList {
+            for (i in 0 until comments.length()) {
+                val comment = comments.optJSONObject(i) ?: continue
+                val parsed = DanmakuComment.fromDandanplay(
+                    p = comment.optString("p"),
+                    text = comment.optString("m"),
+                )
+                if (parsed != null) add(parsed)
+            }
+        }
+    }
 
     /**
      * 从 jellyfin-plugin-danmu 服务端插件获取 XML 弹幕
@@ -160,6 +185,12 @@ class DandanplayClient(okHttpClient: OkHttpClient) {
             event = parser.next()
         }
         return result
+    }
+
+    private fun apiV2(apiBaseUrl: String): String {
+        val base = apiBaseUrl.trim().trimEnd('/')
+        if (base.isEmpty()) throw IOException("Danmaku API base URL is empty")
+        return if (base.endsWith("/api/v2")) base else "$base/api/v2"
     }
 
     private fun requestString(url: String): String {
