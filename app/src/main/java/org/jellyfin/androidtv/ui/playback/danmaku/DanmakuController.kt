@@ -350,7 +350,8 @@ class DanmakuController(
     private fun isModeBlocked(mode: DanmakuMode, filter: Int): Boolean = when (mode) {
         DanmakuMode.BOTTOM -> filter and DanmakuPreferences.MODE_FILTER_BOTTOM != 0
         DanmakuMode.TOP -> filter and DanmakuPreferences.MODE_FILTER_TOP != 0
-        DanmakuMode.SCROLL -> filter and DanmakuPreferences.MODE_FILTER_SCROLL != 0
+        DanmakuMode.SCROLL, DanmakuMode.SCROLL_LTR ->
+            filter and DanmakuPreferences.MODE_FILTER_SCROLL != 0
     }
 
     @Suppress("MagicNumber")
@@ -372,7 +373,7 @@ class DanmakuController(
         return comments.filter { comment ->
             val bucket = ceil(comment.timeSeconds / durationSec).toLong()
             when (comment.mode) {
-                DanmakuMode.SCROLL -> {
+                DanmakuMode.SCROLL, DanmakuMode.SCROLL_LTR -> {
                     val count = (scrollBuckets[bucket] ?: 0) + 1
                     scrollBuckets[bucket] = count
                     count <= scrollLimit
