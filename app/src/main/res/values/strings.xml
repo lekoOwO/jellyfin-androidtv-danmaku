@@ -752,4 +752,8 @@
     <string name="danmaku_add_source_loaded">Added %1$d danmaku from source</string>
     <string name="danmaku_add_source_empty">No danmaku found at this source</string>
     <string name="danmaku_add_source_failed">Failed to load danmaku source</string>
+    <string name="danmaku_font_family_label">Font family</string>
+    <string name="danmaku_font_family_hint">sans-serif</string>
+    <string name="danmaku_font_weight_label">Font weight: %1$d</string>
+    <string name="danmaku_font_italic">Italic</string>
 </resources>
