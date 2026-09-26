@@ -732,4 +732,10 @@
     <string name="danmaku_loaded_toast">已加载 %1$d 条弹幕：%2$s</string>
     <string name="danmaku_load_failed">弹幕加载失败</string>
     <string name="danmaku_no_match">未找到弹幕匹配，可尝试手动匹配</string>
+    <string name="danmaku_add_source_title">增加弹幕源</string>
+    <string name="danmaku_add_source_action">添加来源</string>
+    <string name="danmaku_add_source_hint">视频播放页地址，例如 B 站 / 巴哈</string>
+    <string name="danmaku_add_source_loaded">已从来源加入 %1$d 条弹幕</string>
+    <string name="danmaku_add_source_empty">该来源没有找到弹幕</string>
+    <string name="danmaku_add_source_failed">弹幕来源加载失败</string>
 </resources>
