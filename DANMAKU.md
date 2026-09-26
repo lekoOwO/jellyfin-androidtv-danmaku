@@ -20,13 +20,16 @@
 
 Actions → **Danmaku / APK**：
 
-- 對 `master` 的 push、PR，以及手動 `workflow_dispatch` 執行建置。
-- 同一分支的新提交取消舊建置，並避免 integration branch 的 push／PR 重複觸發專用 APK 工作流程。
+- 所有 branch 的 push 都會執行；針對 `master` 的 PR 也會執行驗證，並支援手動 `workflow_dispatch`。
+- `master` 的 push／手動執行成功後自動建立正式 GitHub Release；其他 branch 成功後自動建立 GitHub prerelease。PR 只驗證，不建立 Release。
+- Release tag 採 commit-based 命名：`master` 為 `danmaku-<12位 commit>`，其他 branch 為 `danmaku-<branch>-<12位 commit>`；同一 commit 重跑會更新同一個 Release 與覆蓋 assets。
+- 同一分支的新提交會取消舊建置。
 - 編譯 Debug 與最佳化 Danmaku APK，執行 app Debug 單元測試。
 - `danmaku-apks-<commit>` artifact 保留 30 天，含 Debug、unsigned APK、SHA-256 與建置資訊。
 - `danmaku-tests-<commit>` 提供單元測試報告。
 - 僅 `master` 的 push／手動執行可以使用 release signing secrets。簽名在另一台乾淨 runner 上執行，不 checkout 程式碼，不執行 Gradle，只下載同一 run 的已完成建置產物。
 - 簽名前執行 zipalign，簽名後執行 apksigner verify，產物放在 `danmaku-signed-<commit>`。
+- GitHub Release 會附上 Debug、unsigned APK、SHA-256 與 BUILD_INFO；`master` 若已設定四個簽名 secrets，正式 Release 也會附上 persistent-key signed APK 與簽章資訊。
 
 ### 安裝哪一個 APK
 
