@@ -1,0 +1,58 @@
+name: Danmaku / APK
+
+on:
+  push:
+    branches:
+      - master
+      - danmaku-integration
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build APKs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version-file: .tools-versions
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Prepare signing keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/danmaku.jks"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/danmaku.jks" >> "$GITHUB_ENV"
+
+      - name: Build debug and danmaku APKs
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleDebug assembleDanmaku
+
+      - name: Collect APKs
+        run: |
+          mkdir -p build/gh-danmaku-apk
+          find app/build/outputs/apk -type f -name '*.apk' -exec cp '{}' build/gh-danmaku-apk/ \;
+          ls -lh build/gh-danmaku-apk/
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jellyfin-androidtv-danmaku-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: error
+          path: build/gh-danmaku-apk/*.apk
