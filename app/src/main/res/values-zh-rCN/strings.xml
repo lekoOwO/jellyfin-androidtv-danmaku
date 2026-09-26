@@ -738,4 +738,8 @@
     <string name="danmaku_add_source_loaded">已从来源加入 %1$d 条弹幕</string>
     <string name="danmaku_add_source_empty">该来源没有找到弹幕</string>
     <string name="danmaku_add_source_failed">弹幕来源加载失败</string>
+    <string name="danmaku_font_family_label">字体</string>
+    <string name="danmaku_font_family_hint">sans-serif</string>
+    <string name="danmaku_font_weight_label">字重：%1$d</string>
+    <string name="danmaku_font_italic">斜体</string>
 </resources>
