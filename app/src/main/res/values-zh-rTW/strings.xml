@@ -622,4 +622,10 @@
     <string name="danmaku_loaded_toast">已載入 %1$d 條彈幕：%2$s</string>
     <string name="danmaku_load_failed">彈幕載入失敗</string>
     <string name="danmaku_no_match">找不到匹配的彈幕，請嘗試手動匹配</string>
+    <string name="danmaku_add_source_title">增加彈幕來源</string>
+    <string name="danmaku_add_source_action">加入來源</string>
+    <string name="danmaku_add_source_hint">影片播放頁網址，例如 BiliBili / 巴哈</string>
+    <string name="danmaku_add_source_loaded">已從來源加入 %1$d 條彈幕</string>
+    <string name="danmaku_add_source_empty">此來源找不到彈幕</string>
+    <string name="danmaku_add_source_failed">彈幕來源載入失敗</string>
 </resources>
