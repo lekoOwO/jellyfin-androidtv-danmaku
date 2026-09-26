@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Typeface
+import android.os.Build
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
@@ -36,6 +38,9 @@ class DanmakuView @JvmOverloads constructor(
     data class Config(
         val opacity: Float,
         val fontSizeSp: Int,
+        val fontFamily: String,
+        val fontWeight: Int,
+        val fontItalic: Boolean,
         val speedDpPerSecond: Int,
         val heightRatio: Float,
         val antiOverlap: Boolean,
@@ -54,6 +59,9 @@ class DanmakuView @JvmOverloads constructor(
     private var config = Config(
         opacity = DanmakuPreferences.DEFAULT_OPACITY,
         fontSizeSp = DanmakuPreferences.DEFAULT_FONT_SIZE,
+        fontFamily = DanmakuPreferences.DEFAULT_FONT_FAMILY,
+        fontWeight = DanmakuPreferences.DEFAULT_FONT_WEIGHT,
+        fontItalic = false,
         speedDpPerSecond = DanmakuPreferences.DEFAULT_SPEED,
         heightRatio = DanmakuPreferences.DEFAULT_HEIGHT_RATIO,
         antiOverlap = false,
@@ -61,13 +69,11 @@ class DanmakuView @JvmOverloads constructor(
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = STROKE_WIDTH
         strokeJoin = Paint.Join.ROUND
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
 
     private var fontPx = 0f
@@ -125,6 +131,30 @@ class DanmakuView @JvmOverloads constructor(
         speedPxPerSecond = newConfig.speedDpPerSecond * resources.displayMetrics.density
         fillPaint.textSize = fontPx
         strokePaint.textSize = fontPx
+
+        val family = newConfig.fontFamily.ifBlank { DanmakuPreferences.DEFAULT_FONT_FAMILY }
+        val baseTypeface = Typeface.create(family, Typeface.NORMAL)
+        val resolvedTypeface = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Typeface.create(
+                baseTypeface,
+                newConfig.fontWeight.coerceIn(
+                    DanmakuPreferences.MIN_FONT_WEIGHT,
+                    DanmakuPreferences.MAX_FONT_WEIGHT,
+                ),
+                newConfig.fontItalic,
+            )
+        } else {
+            val style = when {
+                newConfig.fontWeight >= FONT_BOLD_THRESHOLD && newConfig.fontItalic -> Typeface.BOLD_ITALIC
+                newConfig.fontWeight >= FONT_BOLD_THRESHOLD -> Typeface.BOLD
+                newConfig.fontItalic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+            }
+            Typeface.create(baseTypeface, style)
+        }
+        fillPaint.typeface = resolvedTypeface
+        strokePaint.typeface = resolvedTypeface
+
         val alpha = (newConfig.opacity * MAX_ALPHA).toInt().coerceIn(0, MAX_ALPHA)
         fillPaint.alpha = alpha
         strokePaint.alpha = alpha
