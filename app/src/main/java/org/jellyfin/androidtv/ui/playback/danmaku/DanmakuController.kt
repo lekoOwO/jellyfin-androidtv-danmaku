@@ -392,6 +392,9 @@ class DanmakuController(
             DanmakuView.Config(
                 opacity = preferences.opacity,
                 fontSizeSp = preferences.fontSizeSp,
+                fontFamily = preferences.fontFamily,
+                fontWeight = preferences.fontWeight,
+                fontItalic = preferences.fontItalic,
                 speedDpPerSecond = preferences.speed,
                 heightRatio = preferences.heightRatio,
                 antiOverlap = preferences.antiOverlap,
@@ -608,6 +611,32 @@ class DanmakuController(
                 preferences.fontSizeSp = value
                 applyViewConfig()
             }
+            danmakuFontFamilyInput.setText(preferences.fontFamily)
+            danmakuFontItalicSwitch.isChecked = preferences.fontItalic
+            danmakuFontWeightSeekbar.max =
+                (DanmakuPreferences.MAX_FONT_WEIGHT - DanmakuPreferences.MIN_FONT_WEIGHT) / FONT_WEIGHT_STEP
+            danmakuFontWeightSeekbar.progress =
+                ((preferences.fontWeight - DanmakuPreferences.MIN_FONT_WEIGHT) / FONT_WEIGHT_STEP)
+                    .coerceIn(0, danmakuFontWeightSeekbar.max)
+            danmakuFontWeightLabel.text =
+                context.getString(R.string.danmaku_font_weight_label, preferences.fontWeight)
+            danmakuFontWeightSeekbar.setOnSeekBarChangeListener(
+                object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
+                        val weight = DanmakuPreferences.MIN_FONT_WEIGHT + progress * FONT_WEIGHT_STEP
+                        danmakuFontWeightLabel.text =
+                            context.getString(R.string.danmaku_font_weight_label, weight)
+                        if (fromUser) {
+                            preferences.fontWeight = weight
+                            applyViewConfig()
+                        }
+                    }
+
+                    override fun onStartTrackingTouch(bar: SeekBar) = Unit
+                    override fun onStopTrackingTouch(bar: SeekBar) = Unit
+                },
+            )
+
             setupSeekBar(
                 seekBar = danmakuSpeedSeekbar,
                 min = DanmakuPreferences.MIN_SPEED,
@@ -676,6 +705,8 @@ class DanmakuController(
                 preferences.chConvert = chButtons.indexOfFirst { button -> button.isChecked }.coerceAtLeast(0)
                 preferences.antiOverlap = danmakuAntiOverlapSwitch.isChecked
                 preferences.useXmlDanmaku = danmakuUseXmlSwitch.isChecked
+                preferences.fontFamily = danmakuFontFamilyInput.text.toString()
+                preferences.fontItalic = danmakuFontItalicSwitch.isChecked
                 preferences.customApiBaseUrl = danmakuCustomApiInput.text.toString()
 
                 val offset = danmakuOffsetValue.text.toString().toDoubleOrNull() ?: initialOffset
@@ -733,6 +764,7 @@ class DanmakuController(
         private const val MAX_PERCENT = 100
         private const val MIN_OPACITY_PERCENT = 10
         private const val MIN_HEIGHT_PERCENT = 10
+        private const val FONT_WEIGHT_STEP = 100
     }
 
     private fun findFirstStandardEpisode(episodes: List<DandanplayClient.EpisodeResult>): DandanplayClient.EpisodeResult? {
