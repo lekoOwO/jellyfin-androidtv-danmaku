@@ -85,7 +85,7 @@ android {
 			buildConfigField("boolean", "DEVELOPMENT", (defaultConfig.versionCode!! < 100).toString())
 		}
 
-		danmaku {
+		create("danmaku") {
 			initWith(getByName("release"))
 			applicationIdSuffix = ".danmaku"
 			versionNameSuffix = "-danmaku"
