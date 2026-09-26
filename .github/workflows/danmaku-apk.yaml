@@ -152,7 +152,7 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: [build, sign]
-    if: ${{ always() && needs.build.result == 'success' && github.event_name != 'pull_request' && github.ref_type == 'branch' }}
+    if: ${{ always() && needs.build.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') && github.event_name != 'pull_request' && github.ref_type == 'branch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
