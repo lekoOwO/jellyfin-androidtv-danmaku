@@ -1,0 +1,148 @@
+name: Danmaku / APK
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: danmaku-apk-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build APKs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version-file: .tools-versions
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Build and test (no signing secrets)
+        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleDanmaku :app:testDebugUnitTest
+      - name: Collect APKs and build information
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          mapfile -t debug_apks < <(find app/build/outputs/apk/debug -type f -name '*.apk')
+          mapfile -t release_apks < <(find app/build/outputs/apk/danmaku -type f -name '*-unsigned.apk')
+          test "${#debug_apks[@]}" -eq 1
+          test "${#release_apks[@]}" -eq 1
+          cp "${debug_apks[0]}" dist/jellyfin-danmaku-debug.apk
+          cp "${release_apks[0]}" dist/jellyfin-danmaku-unsigned.apk
+          printf 'Commit: %s\nRun: %s\nDebug: temporary debug signature; installable for testing.\nDanmaku: unsigned; must be signed before installation.\n' \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/BUILD_INFO.txt
+          (cd dist && sha256sum *.apk > SHA256SUMS)
+          cat dist/BUILD_INFO.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: danmaku-apks-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: error
+          path: dist/
+      - name: Upload unit test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: danmaku-tests-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: ignore
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+
+  sign:
+    name: Sign APK (master only)
+    needs: build
+    if: ${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # A fresh runner, no checkout and no Gradle execution with signing credentials.
+    steps:
+      - name: Check optional signing configuration
+        id: config
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -n "${!name}" ]]; then count=$((count + 1)); fi
+          done
+          if [[ "$count" -eq 0 ]]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'Release signing not configured. Debug and unsigned APKs are available in the build artifact; see DANMAKU.md for the four signing secrets.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$count" -ne 4 ]]; then
+            echo '::error::Signing is partially configured. All four ANDROID_* signing secrets are required.'
+            exit 1
+          else
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download this run only
+        if: ${{ steps.config.outputs.enabled == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: danmaku-apks-${{ github.sha }}
+          path: input
+      - name: Setup Java
+        if: ${{ steps.config.outputs.enabled == 'true' }}
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Align, sign and verify APK
+        if: ${{ steps.config.outputs.enabled == 'true' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          keyfile="$RUNNER_TEMP/danmaku-signing.jks"
+          aligned="$RUNNER_TEMP/danmaku-aligned.apk"
+          trap 'rm -f "$keyfile" "$aligned"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keyfile"
+          tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          test -x "$tools/apksigner"
+          mkdir -p signed
+          "$tools/zipalign" -P 16 -f 4 input/jellyfin-danmaku-unsigned.apk "$aligned"
+          "$tools/apksigner" sign --ks "$keyfile" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
+            --v4-signing-enabled false --out signed/jellyfin-danmaku-signed.apk "$aligned"
+          "$tools/apksigner" verify --verbose --print-certs signed/jellyfin-danmaku-signed.apk > signed/SIGNATURE.txt
+          cp input/BUILD_INFO.txt signed/BUILD_INFO.txt
+          printf '\nSigned with the configured persistent release key. Package: org.jellyfin.androidtv.danmaku\n' >> signed/BUILD_INFO.txt
+          (cd signed && sha256sum *.apk > SHA256SUMS)
+          echo 'Signed APK verified; download the danmaku-signed artifact.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload signed APK
+        if: ${{ steps.config.outputs.enabled == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: danmaku-signed-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: error
+          path: signed/

@@ -31,10 +31,10 @@ android {
 	}
 
 	signingConfigs {
-		val keystoreFile = getProperty("keystore.file")
-		val keystorePassword = getProperty("keystore.password")
-		val signingKeyAlias = getProperty("signing.key.alias")
-		val signingKeyPassword = getProperty("signing.key.password")
+		val keystoreFile = getProperty("keystore.file") ?: System.getenv("ANDROID_KEYSTORE_FILE")?.takeIf(String::isNotBlank)
+		val keystorePassword = getProperty("keystore.password") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf(String::isNotBlank)
+		val signingKeyAlias = getProperty("signing.key.alias") ?: System.getenv("ANDROID_KEY_ALIAS")?.takeIf(String::isNotBlank)
+		val signingKeyPassword = getProperty("signing.key.password") ?: System.getenv("ANDROID_KEY_PASSWORD")?.takeIf(String::isNotBlank)
 
 		if (keystoreFile != null && keystorePassword != null && signingKeyAlias != null && signingKeyPassword != null) {
 			create("release") {
@@ -83,6 +83,21 @@ android {
 			resValue("string", "app_name", "@string/app_name_debug")
 
 			buildConfigField("boolean", "DEVELOPMENT", (defaultConfig.versionCode!! < 100).toString())
+		}
+
+		create("danmaku") {
+			initWith(getByName("release"))
+			matchingFallbacks += listOf("release")
+			applicationIdSuffix = ".danmaku"
+			versionNameSuffix = "-danmaku"
+
+			resValue("string", "app_id", namespace + applicationIdSuffix)
+			resValue("string", "app_search_suggest_authority", "${namespace + applicationIdSuffix}.content")
+			resValue("string", "app_search_suggest_intent_data", "content://${namespace + applicationIdSuffix}.content/intent")
+			resValue("string", "app_name", "@string/app_name_danmaku")
+
+			buildConfigField("boolean", "DEVELOPMENT", "false")
+			signingConfig = signingConfigs.findByName("release")
 		}
 	}
 
