@@ -49,6 +49,15 @@
                 android:layout_weight="1"
                 android:text="@string/danmaku_reload_button"
                 android:textColor="#00A4DC" />
+
+            <Button
+                android:id="@+id/danmaku_add_source_button"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/danmaku_add_source_action"
+                android:textColor="#00A4DC" />
         </LinearLayout>
 
         <TextView
