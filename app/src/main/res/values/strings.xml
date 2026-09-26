@@ -746,4 +746,10 @@
     <string name="danmaku_loaded_toast">Loaded %1$d danmaku: %2$s</string>
     <string name="danmaku_load_failed">Failed to load danmaku</string>
     <string name="danmaku_no_match">No danmaku match found, try manual match</string>
+    <string name="danmaku_add_source_title">Add danmaku source</string>
+    <string name="danmaku_add_source_action">Add source</string>
+    <string name="danmaku_add_source_hint">Video page URL, e.g. BiliBili / Gamer</string>
+    <string name="danmaku_add_source_loaded">Added %1$d danmaku from source</string>
+    <string name="danmaku_add_source_empty">No danmaku found at this source</string>
+    <string name="danmaku_add_source_failed">Failed to load danmaku source</string>
 </resources>
