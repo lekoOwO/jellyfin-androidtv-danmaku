@@ -235,7 +235,7 @@ class DanmakuView @JvmOverloads constructor(
     private fun assignLane(item: RenderItem, duration: Long): Int {
         if (scrollLaneTimes.size != laneCount) resetLanes()
         when (item.mode) {
-            DanmakuMode.SCROLL -> {
+            DanmakuMode.SCROLL, DanmakuMode.SCROLL_LTR -> {
                 for (lane in 0 until laneCount) {
                     if (isScrollLaneFree(lane, item, duration)) {
                         scrollLaneTimes[lane] = item.timeMs
@@ -300,6 +300,10 @@ class DanmakuView @JvmOverloads constructor(
             when (item.mode) {
                 DanmakuMode.SCROLL -> {
                     x = widthF - progress * (widthF + item.width)
+                    baseline = item.lane * laneHeight + fontPx
+                }
+                DanmakuMode.SCROLL_LTR -> {
+                    x = -item.width + progress * (widthF + item.width)
                     baseline = item.lane * laneHeight + fontPx
                 }
                 DanmakuMode.TOP -> {
