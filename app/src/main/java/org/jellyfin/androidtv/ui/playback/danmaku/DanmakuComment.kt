@@ -5,6 +5,7 @@ package org.jellyfin.androidtv.ui.playback.danmaku
  */
 enum class DanmakuMode {
     SCROLL,
+    SCROLL_LTR,
     TOP,
     BOTTOM,
 }
@@ -49,7 +50,8 @@ data class DanmakuComment(
 
             val time = parts[0].toDoubleOrNull() ?: return null
             val mode = when (parts[1].trim().toIntOrNull()) {
-                1, 6 -> DanmakuMode.SCROLL
+                1 -> DanmakuMode.SCROLL
+                6 -> DanmakuMode.SCROLL_LTR
                 4 -> DanmakuMode.BOTTOM
                 5 -> DanmakuMode.TOP
                 else -> return null
