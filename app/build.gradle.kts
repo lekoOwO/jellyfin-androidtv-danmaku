@@ -87,6 +87,7 @@ android {
 
 		create("danmaku") {
 			initWith(getByName("release"))
+			matchingFallbacks += listOf("release")
 			applicationIdSuffix = ".danmaku"
 			versionNameSuffix = "-danmaku"
 
