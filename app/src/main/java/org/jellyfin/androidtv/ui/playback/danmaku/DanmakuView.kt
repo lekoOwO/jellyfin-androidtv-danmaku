@@ -184,11 +184,8 @@ class DanmakuView @JvmOverloads constructor(
     }
 
     private fun tick() {
-        if (!danmakuVisible || items.isEmpty() || width == 0 || height == 0) {
-            if (activeItems.isNotEmpty()) {
-                activeItems.clear()
-                invalidate()
-            }
+        if (!canRenderFrame()) {
+            clearActiveComments()
             return
         }
         val position = positionProvider?.invoke() ?: return
@@ -196,21 +193,36 @@ class DanmakuView @JvmOverloads constructor(
         if (duration == 0L) return
         var changed = false
 
-        if (forceRebuild || lastPositionMs == Long.MIN_VALUE ||
-            position < lastPositionMs - BACKWARD_TOLERANCE_MS ||
-            position > lastPositionMs + FORWARD_JUMP_THRESHOLD_MS
-        ) {
+        if (danmakuNeedsRebuild(position, lastPositionMs, forceRebuild)) {
             rebuild(position, duration)
             changed = true
         }
+        if (removeExpiredComments(position, duration)) changed = true
+        // Do not combine these calls with short-circuit OR: both must run even after a rebuild.
+        if (addDueComments(position, duration)) changed = true
+        if (changed || position != lastPositionMs) invalidate()
+        lastPositionMs = position
+    }
 
-        if (activeItems.removeAll { item -> position - item.timeMs > duration || position < item.timeMs }) {
-            changed = true
+    // Four independent rendering prerequisites are clearer as one guard than nested branches.
+    @Suppress("ComplexCondition")
+    private fun canRenderFrame(): Boolean = danmakuVisible && items.isNotEmpty() && width != 0 && height != 0
+
+    private fun clearActiveComments() {
+        if (activeItems.isNotEmpty()) {
+            activeItems.clear()
+            invalidate()
         }
+    }
 
+    private fun removeExpiredComments(position: Long, duration: Long): Boolean =
+        activeItems.removeAll { !danmakuCommentIsActive(it.timeMs, position, duration) }
+
+    private fun addDueComments(position: Long, duration: Long): Boolean {
+        var changed = false
         while (nextIndex < items.size && items[nextIndex].timeMs <= position) {
             val item = items[nextIndex++]
-            if (position - item.timeMs > duration) continue
+            if (!danmakuCommentIsActive(item.timeMs, position, duration)) continue
             if (item.width < 0f) item.width = fillPaint.measureText(item.text)
             item.lane = assignLane(item, duration)
             if (item.lane >= 0) {
@@ -218,8 +230,7 @@ class DanmakuView @JvmOverloads constructor(
                 changed = true
             }
         }
-        if (changed || position != lastPositionMs) invalidate()
-        lastPositionMs = position
+        return changed
     }
 
     private fun rebuild(position: Long, duration: Long) {
@@ -341,7 +352,5 @@ class DanmakuView @JvmOverloads constructor(
         private const val STROKE_WIDTH = 3f
         private const val MAX_ALPHA = 255
         private const val MIN_DURATION_MS = 1000L
-        private const val BACKWARD_TOLERANCE_MS = 250L
-        private const val FORWARD_JUMP_THRESHOLD_MS = 2000L
     }
 }
