@@ -1,12 +1,12 @@
 package org.jellyfin.androidtv.ui.playback.danmaku
 
 import android.annotation.SuppressLint
+import android.app.Dialog
 import android.content.Context
 import android.view.LayoutInflater
 import android.widget.EditText
 import android.widget.SeekBar
 import androidx.appcompat.app.AlertDialog
-import android.app.Dialog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -143,81 +143,18 @@ class DanmakuController(
         val episodeKey = episodeKey ?: return null
         val animeKey = animeKey ?: return null
         val item = currentItem ?: return null
-
         preferences.getSavedEpisode(episodeKey)?.let { saved -> return saved }
-
         val animeName = buildAnimeName(item) ?: return null
-        // 回退0：手动匹配过本番后，用记忆的番剧标题再搜一次。
-        // 某些标题带季号/别名时按原名搜不到（如"正相反的你和我2"需搜"相反的你"），
-        // 手动匹配保存的标题是已验证可搜到的关键词，之后本季剧集都能自动匹配。
-        val savedAnime = preferences.getSavedAnime(animeKey)
-        var results = client.searchEpisodes(preferences.apiBaseUrl, animeName)
-        if (results.isEmpty() && savedAnime != null && savedAnime.second != animeName) {
-            results = client.searchEpisodes(preferences.apiBaseUrl, savedAnime.second)
-        }
 
-        if (results.isEmpty()) {
-            val originalTitle = fetchOriginalTitle(item.seriesId ?: item.id)
-            if (!originalTitle.isNullOrBlank() && originalTitle != animeName) {
-                results = client.searchEpisodes(preferences.apiBaseUrl, originalTitle)
-            }
-        }
-
-        val season = item.parentIndexNumber ?: 1
-        if (results.isEmpty() || (results.size > 1 && season > 1 && !results.any { anime ->
-            matchesSeason(anime.animeTitle, season)
-        })) {
-            val seriesOnly = item.seriesName ?: item.name
-            if (!seriesOnly.isNullOrBlank() && seriesOnly != animeName) {
-                val fallbackResults = client.searchEpisodes(preferences.apiBaseUrl, seriesOnly)
-                if (fallbackResults.isNotEmpty()) {
-                    results = (results.toList() + fallbackResults.toList())
-                        .distinctBy { anime -> anime.animeId }
-                }
-            }
-        }
-
-        if (results.isEmpty()) return null
-
-        val animeIdx = savedAnime
-            ?.let { (animeId, _) -> results.indexOfFirst { anime -> anime.animeId == animeId } }
-            ?.takeIf { idx -> idx >= 0 }
-            ?: selectBestAnime(results, item, animeName)
-        if (animeIdx == null) return null
-        val anime = results[animeIdx]
-        if (anime.episodes.isEmpty()) return null
-
-        val standardEps = filterStandardEpisodes(anime.episodes)
-        val mainEpisodes = if (standardEps.isNotEmpty()) standardEps else anime.episodes
-
-        // 精确匹配优先：按剧集标题里的集号（第N话）直接匹配当前集号，
-        // 避免弹幕库缺集/编号不连续时位置换算偏移（与 Jellyfin 的 SxxExx 集号对齐）
-        val exactEpisode = mainEpisodes.firstOrNull { ep ->
-            EPISODE_NUMBER_REGEX.find(ep.episodeTitle)?.groupValues?.getOrNull(1)?.toIntOrNull() == episodeIndex
-        }
-        if (exactEpisode != null) {
-            val exactMatch = SavedDanmakuMatch(
-                episodeId = exactEpisode.episodeId,
-                animeTitle = anime.animeTitle,
-                episodeTitle = exactEpisode.episodeTitle,
-            )
-            preferences.saveEpisode(episodeKey, exactMatch)
-            return exactMatch
-        }
-
-        // 位置换算回退：弹幕库不从第 1 话开始等情况（与 ede.js 一致）
-        val firstStandard = findFirstStandardEpisode(mainEpisodes)
-        val initialEp = firstStandard
-            ?.let { EPISODE_NUMBER_REGEX.find(it.episodeTitle)?.groupValues?.getOrNull(1)?.toIntOrNull() }
-            ?: 1
-        val epIdx = if (episodeIndex < initialEp) episodeIndex - 1 else episodeIndex - initialEp
-        val episode = mainEpisodes.getOrNull(epIdx) ?: return null
-
-        val match = SavedDanmakuMatch(
-            episodeId = episode.episodeId,
-            animeTitle = anime.animeTitle,
-            episodeTitle = episode.episodeTitle,
+        val request = DanmakuMatcher.Request(
+            animeName = animeName,
+            seriesName = item.seriesName ?: item.name,
+            season = item.parentIndexNumber ?: 1,
+            episodeIndex = episodeIndex,
+            savedAnime = preferences.getSavedAnime(animeKey),
         )
+        val matcher = DanmakuMatcher { name -> client.searchEpisodes(preferences.apiBaseUrl, name) }
+        val match = matcher.findMatch(request) { fetchOriginalTitle(item.seriesId ?: item.id) } ?: return null
         preferences.saveEpisode(episodeKey, match)
         return match
     }
@@ -229,65 +166,6 @@ class DanmakuController(
             name += " $season"
         }
         return name
-    }
-
-    @Suppress("ReturnCount")
-    private fun selectBestAnime(
-        results: List<DandanplayClient.AnimeResult>,
-        item: BaseItemDto,
-        searchKey: String,
-    ): Int? {
-        if (results.size == 1) return 0
-
-        val season = item.parentIndexNumber ?: 1
-        val episodeIndex = item.indexNumber ?: 1
-
-        if (season > 1) {
-            val seasonMatchIdx = results.indexOfFirst { anime ->
-                matchesSeason(anime.animeTitle, season)
-            }
-            if (seasonMatchIdx >= 0) return seasonMatchIdx
-        }
-
-        val scores = results.mapIndexed { idx, anime ->
-            val standardEps = filterStandardEpisodes(anime.episodes)
-            val allEps = if (standardEps.isNotEmpty()) standardEps else anime.episodes
-            val firstEp = findFirstStandardEpisode(allEps)
-            val initialEp = firstEp
-                ?.let { EPISODE_NUMBER_REGEX.find(it.episodeTitle)?.groupValues?.getOrNull(1)?.toIntOrNull() }
-                ?: 1
-            val maxEp = initialEp + allEps.size - 1
-            val coversEpisode = episodeIndex in initialEp..maxEp
-
-            var score = 100000
-            if (coversEpisode) score -= 50000
-            if (anime.type == "tvseries") score -= 10000
-            if (season == 1 && !hasSeasonIndicator(anime.animeTitle)) score -= 5000
-
-            if (anime.animeTitle.contains(searchKey, ignoreCase = true) ||
-                searchKey.contains(anime.animeTitle, ignoreCase = true)) {
-                score -= 20000
-            }
-
-            score += anime.animeTitle.length
-            idx to score
-        }
-
-        return scores.minByOrNull { it.second }?.first
-    }
-
-    private fun matchesSeason(title: String, season: Int): Boolean {
-        val patterns = listOf(
-            "第${season}季", "第 ${season} 季", "${season}期", "第${season}期",
-            "Season $season", " $season",
-        )
-        return patterns.any { pattern ->
-            title.contains(pattern, ignoreCase = true)
-        }
-    }
-
-    private fun hasSeasonIndicator(title: String): Boolean {
-        return SEASON_INDICATOR_REGEX.containsMatchIn(title)
     }
 
     private suspend fun fetchOriginalTitle(seriesId: UUID?): String? {
@@ -734,6 +612,9 @@ class DanmakuController(
         dialog.show()
     }
 
+    // A small UI binder: widget, bounds, initial value and two distinct callbacks.
+    // Named call-site arguments are clearer here than an otherwise unused configuration wrapper.
+    @Suppress("LongParameterList")
     private fun setupSeekBar(
         seekBar: SeekBar,
         min: Int,
@@ -758,24 +639,10 @@ class DanmakuController(
     }
 
     companion object {
-        private val EPISODE_NUMBER_REGEX = Regex("""第\s*(\d+)\s*[话話集]""")
-        private val SEASON_INDICATOR_REGEX = Regex("""第\s*\d+\s*季|\d+期|Season\s+\d+""", RegexOption.IGNORE_CASE)
         private const val OFFSET_STEP_SECONDS = 0.5
         private const val MAX_PERCENT = 100
         private const val MIN_OPACITY_PERCENT = 10
         private const val MIN_HEIGHT_PERCENT = 10
         private const val FONT_WEIGHT_STEP = 100
-    }
-
-    private fun findFirstStandardEpisode(episodes: List<DandanplayClient.EpisodeResult>): DandanplayClient.EpisodeResult? {
-        return episodes.firstOrNull { ep ->
-            EPISODE_NUMBER_REGEX.containsMatchIn(ep.episodeTitle)
-        }
-    }
-
-    private fun filterStandardEpisodes(episodes: List<DandanplayClient.EpisodeResult>): List<DandanplayClient.EpisodeResult> {
-        return episodes.filter { ep ->
-            EPISODE_NUMBER_REGEX.containsMatchIn(ep.episodeTitle)
-        }
     }
 }

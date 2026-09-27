@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import timber.log.Timber
@@ -42,35 +43,7 @@ class DandanplayClient(okHttpClient: OkHttpClient) {
     suspend fun searchEpisodes(apiBaseUrl: String, animeName: String): List<AnimeResult> = withContext(Dispatchers.IO) {
         val encodedName = URLEncoder.encode(animeName, Charsets.UTF_8.name())
         val url = "${apiV2(apiBaseUrl)}/search/episodes?anime=$encodedName"
-        val json = JSONObject(requestString(url))
-        val animes = json.optJSONArray("animes") ?: return@withContext emptyList()
-
-        buildList {
-            for (i in 0 until animes.length()) {
-                val anime = animes.optJSONObject(i) ?: continue
-                val episodesJson = anime.optJSONArray("episodes") ?: continue
-                val episodes = buildList {
-                    for (j in 0 until episodesJson.length()) {
-                        val episode = episodesJson.optJSONObject(j) ?: continue
-                        add(
-                            EpisodeResult(
-                                episodeId = episode.optLong("episodeId"),
-                                episodeTitle = episode.optString("episodeTitle"),
-                            ),
-                        )
-                    }
-                }
-                add(
-                    AnimeResult(
-                        animeId = anime.optLong("animeId"),
-                        animeTitle = anime.optString("animeTitle"),
-                        typeDescription = anime.optString("typeDescription"),
-                        type = anime.optString("type"),
-                        episodes = episodes,
-                    ),
-                )
-            }
-        }
+        parseSearchResponse(JSONObject(requestString(url)))
     }
 
     /**
@@ -79,19 +52,7 @@ class DandanplayClient(okHttpClient: OkHttpClient) {
     suspend fun getComments(apiBaseUrl: String, episodeId: Long, chConvert: Int): List<DanmakuComment> =
         withContext(Dispatchers.IO) {
             val url = "${apiV2(apiBaseUrl)}/comment/$episodeId?withRelated=true&chConvert=$chConvert"
-            val json = JSONObject(requestString(url))
-            val comments = json.optJSONArray("comments") ?: return@withContext emptyList()
-
-            buildList {
-                for (i in 0 until comments.length()) {
-                    val comment = comments.optJSONObject(i) ?: continue
-                    val parsed = DanmakuComment.fromDandanplay(
-                        p = comment.optString("p"),
-                        text = comment.optString("m"),
-                    )
-                    if (parsed != null) add(parsed)
-                }
-            }
+            parseCommentsResponse(JSONObject(requestString(url)))
         }
 
     /**
@@ -104,19 +65,7 @@ class DandanplayClient(okHttpClient: OkHttpClient) {
     ): List<DanmakuComment> = withContext(Dispatchers.IO) {
         val encodedUrl = URLEncoder.encode(videoUrl.trim(), Charsets.UTF_8.name())
         val url = "${apiV2(apiBaseUrl)}/extcomment?chConvert=$chConvert&url=$encodedUrl"
-        val json = JSONObject(requestString(url))
-        val comments = json.optJSONArray("comments") ?: return@withContext emptyList()
-
-        buildList {
-            for (i in 0 until comments.length()) {
-                val comment = comments.optJSONObject(i) ?: continue
-                val parsed = DanmakuComment.fromDandanplay(
-                    p = comment.optString("p"),
-                    text = comment.optString("m"),
-                )
-                if (parsed != null) add(parsed)
-            }
-        }
+        parseCommentsResponse(JSONObject(requestString(url)))
     }
 
     /**
@@ -208,5 +157,44 @@ class DandanplayClient(okHttpClient: OkHttpClient) {
 
     companion object {
         private const val TIMEOUT_SECONDS = 20L
+
+        internal fun parseSearchResponse(json: JSONObject): List<AnimeResult> {
+            val animes = json.optJSONArray("animes") ?: return emptyList()
+            return buildList {
+                for (i in 0 until animes.length()) {
+                    val anime = animes.optJSONObject(i) ?: continue
+                    parseAnime(anime)?.let { add(it) }
+                }
+            }
+        }
+
+        private fun parseAnime(anime: JSONObject): AnimeResult? {
+            // A missing episodes array is invalid; an explicitly empty array is still a valid search result.
+            val episodes = anime.optJSONArray("episodes") ?: return null
+            return AnimeResult(
+                animeId = anime.optLong("animeId"),
+                animeTitle = anime.optString("animeTitle"),
+                typeDescription = anime.optString("typeDescription"),
+                type = anime.optString("type"),
+                episodes = parseEpisodes(episodes),
+            )
+        }
+
+        private fun parseEpisodes(episodes: JSONArray): List<EpisodeResult> = buildList {
+            for (i in 0 until episodes.length()) {
+                val episode = episodes.optJSONObject(i) ?: continue
+                add(EpisodeResult(episode.optLong("episodeId"), episode.optString("episodeTitle")))
+            }
+        }
+
+        internal fun parseCommentsResponse(json: JSONObject): List<DanmakuComment> {
+            val comments = json.optJSONArray("comments") ?: return emptyList()
+            return buildList {
+                for (i in 0 until comments.length()) {
+                    val comment = comments.optJSONObject(i) ?: continue
+                    DanmakuComment.fromDandanplay(comment.optString("p"), comment.optString("m"))?.let { add(it) }
+                }
+            }
+        }
     }
 }
